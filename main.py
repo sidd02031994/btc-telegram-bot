@@ -1,52 +1,61 @@
-import os
-import logging
-import asyncio
+
 from flask import Flask, request
 import requests
-from threading import Thread
+import os
+import threading
 from telethon import TelegramClient, events
 
-# === Flask App ===
 app = Flask(__name__)
+
+# Environment Variables
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 CHAT_ID = os.getenv("CHAT_ID")
+API_ID = os.getenv("API_ID")
+API_HASH = os.getenv("API_HASH")
 
+# Validation
+if not BOT_TOKEN or not CHAT_ID or not API_ID or not API_HASH:
+    raise EnvironmentError("❌ One or more required environment variables are missing.")
+
+API_ID = int(API_ID)
+
+# TelegramClient setup
+client = TelegramClient("reaction_tracker", API_ID, API_HASH)
+
+# Flask Routes
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ Bot is running!"
+    return "✅ BTC Breakout Bot is running!"
 
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.json
     message = data.get("message", "⚠️ No message received from alert")
 
-    url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {"chat_id": CHAT_ID, "text": message}
-    response = requests.post(url, data=payload)
-
+    telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {
+        "chat_id": CHAT_ID,
+        "text": message
+    }
+    response = requests.post(telegram_url, data=payload)
     return {"status": "sent", "telegram_response": response.json()}
 
-
-# === Telethon Emoji Reaction Tracker ===
-API_ID = int(os.getenv("API_ID"))
-API_HASH = os.getenv("API_HASH")
-SESSION_NAME = "reaction_tracker"
-
-client = TelegramClient(SESSION_NAME, API_ID, API_HASH)
-
+# Telethon background task
 @client.on(events.Raw)
-async def reaction_logger(event):
-    if hasattr(event, 'reactions'):
-        print("🔁 Reaction Event Detected")
-        print(event.stringify())
+async def handler(event):
+    if hasattr(event, "message_id") and hasattr(event, "peer"):
+        print(f"📥 Reaction or event detected: {event}")
 
-# === Run Telethon in background thread ===
 def start_telethon():
-    with client:
-        print("🚀 Telethon bot running...")
-        client.run_until_disconnected()
+    try:
+        with client:
+            print("🚀 Telethon bot running...")
+            client.run_until_disconnected()
+    except Exception as e:
+        print(f"❌ Telethon failed: {e}")
 
-# === Start Both Flask and Telethon ===
+# Start Flask and Telethon
 if __name__ == "__main__":
-    Thread(target=start_telethon).start()
+    telethon_thread = threading.Thread(target=start_telethon)
+    telethon_thread.start()
     app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
