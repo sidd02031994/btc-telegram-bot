@@ -1,61 +1,49 @@
-
+import os
+import asyncio
 from flask import Flask, request
 import requests
-import os
-import threading
 from telethon import TelegramClient, events
 
+# Load env variables
+API_ID = int(os.environ.get("API_ID"))
+API_HASH = os.environ.get("API_HASH")
+BOT_TOKEN = os.environ.get("BOT_TOKEN")
+CHAT_ID = os.environ.get("CHAT_ID")
+
+# Flask setup
 app = Flask(__name__)
 
-# Environment Variables
-BOT_TOKEN = os.getenv("BOT_TOKEN")
-CHAT_ID = os.getenv("CHAT_ID")
-API_ID = os.getenv("API_ID")
-API_HASH = os.getenv("API_HASH")
-
-# Validation
-if not BOT_TOKEN or not CHAT_ID or not API_ID or not API_HASH:
-    raise EnvironmentError("❌ One or more required environment variables are missing.")
-
-API_ID = int(API_ID)
-
-# TelegramClient setup
-client = TelegramClient("reaction_tracker", API_ID, API_HASH)
-
-# Flask Routes
 @app.route("/", methods=["GET"])
 def home():
-    return "✅ BTC Breakout Bot is running!"
+    return "✅ Bot is running!"
 
 @app.route("/", methods=["POST"])
 def webhook():
     data = request.json
     message = data.get("message", "⚠️ No message received from alert")
-
-    telegram_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
-        "chat_id": CHAT_ID,
-        "text": message
-    }
-    response = requests.post(telegram_url, data=payload)
+    send_url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
+    payload = {"chat_id": CHAT_ID, "text": message}
+    response = requests.post(send_url, data=payload)
     return {"status": "sent", "telegram_response": response.json()}
 
-# Telethon background task
+# Telethon setup
+client = TelegramClient('anon', API_ID, API_HASH)
+
 @client.on(events.Raw)
 async def handler(event):
-    if hasattr(event, "message_id") and hasattr(event, "peer"):
-        print(f"📥 Reaction or event detected: {event}")
+    if hasattr(event, 'reaction'):
+        print("💬 Reaction detected:", event)
 
-def start_telethon():
-    try:
-        with client:
-            print("🚀 Telethon bot running...")
-            client.run_until_disconnected()
-    except Exception as e:
-        print(f"❌ Telethon failed: {e}")
+# Unified async entry point
+async def start():
+    await client.start(bot_token=BOT_TOKEN)
+    print("✅ Telethon client started")
 
-# Start Flask and Telethon
+    # Run both Flask and Telethon
+    await asyncio.gather(
+        asyncio.to_thread(app.run, host="0.0.0.0", port=int(os.environ.get("PORT", 5000))),
+        client.run_until_disconnected()
+    )
+
 if __name__ == "__main__":
-    telethon_thread = threading.Thread(target=start_telethon)
-    telethon_thread.start()
-    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
+    asyncio.run(start())
